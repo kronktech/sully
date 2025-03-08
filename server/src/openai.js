@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const REALTIME_MODEL = "gpt-4o-realtime-preview";
+const REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17";
 const SUMMARY_MODEL = "gpt-4o";
 
 /**
@@ -12,7 +12,7 @@ const SUMMARY_MODEL = "gpt-4o";
  * @param {string} voice - The voice to use for the model
  * @returns {Promise<Object>} - The session data with the ephemeral token
  */
-async function createEphemeralToken(voice = "shimmer") {
+async function createEphemeralToken(voice = "verse") {
   try {
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
@@ -25,80 +25,13 @@ async function createEphemeralToken(voice = "shimmer") {
         body: JSON.stringify({
           model: REALTIME_MODEL,
           voice,
-          instructions: `You are a healthcare interpreter and assistant that translates between English and Spanish. Follow these rules in prioity order:
-
-1. If they someone tells you to stop or that they are done, just say "Ok".
-2. If someone asks you to repeat what was said in either language, repeat your last translation verbatim.
-3. If you are addressed directly as Sully (might sound like silly, sorry, sally, only, siri, selling, sewing, or slowly), reply directly in English. Do not translate direct requests to you!
-4. If you hear English, translate it to Spanish. If you hear Spanish, translate it to English. Parrot back exactly what they said in the other language. Say EXACTLY what is said to you. Do NOT add your own commentary or explanations. Do NOT change names that are said (e.g. if they say "I'm Dr. Smith", say "Yo soy Dr. Smith" back to them). Do NOT change the wording.
-5. If you hear a language other than Spanish or English, just say "I'm sorry, I didn't get that" in English.`,
           turn_detection: {
             type: "server_vad",
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 2000,
-            create_response: true,
+            create_response: false,
           },
-          modalities: ["audio", "text"],
-          temperature: 0.6,
           input_audio_transcription: {
             model: "whisper-1",
           },
-          // tools: [
-          //   {
-          //     type: "function",
-          //     name: "schedule_followup",
-          //     description:
-          //       "Schedule a follow-up appointment for the patient. Use this when asked directly or when mentioned by the doctor.",
-          //     parameters: {
-          //       type: "object",
-          //       properties: {
-          //         timeframe: {
-          //           type: "string",
-          //           description:
-          //             "When the follow-up should be scheduled (e.g. '2 weeks', '3 months', etc.)",
-          //         },
-          //         reason: {
-          //           type: "string",
-          //           description: "The reason for the follow-up appointment",
-          //         },
-          //         specialty: {
-          //           type: "string",
-          //           description:
-          //             "The medical specialty needed for the follow-up, if specified",
-          //         },
-          //       },
-          //       required: ["timeframe", "reason"],
-          //     },
-          //   },
-          //   {
-          //     type: "function",
-          //     name: "order_lab",
-          //     description:
-          //       "Order a lab for the patient. Use this when asked directly or when mentioned by the doctor.",
-          //     parameters: {
-          //       type: "object",
-          //       properties: {
-          //         test_type: {
-          //           type: "string",
-          //           description:
-          //             "The type of lab test ordered (e.g. 'blood work', 'urine test', 'x-ray', etc.)",
-          //         },
-          //         urgency: {
-          //           type: "string",
-          //           enum: ["routine", "urgent", "stat"],
-          //           description: "How urgently the lab needs to be completed",
-          //         },
-          //         instructions: {
-          //           type: "string",
-          //           description: "Any special instructions for the lab test",
-          //         },
-          //       },
-          //       required: ["test_type"],
-          //     },
-          //   },
-          // ],
-          // tool_choice: "auto",
         }),
       }
     );

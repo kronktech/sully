@@ -62,7 +62,11 @@ app.post("/api/summary", async (req, res) => {
     const result =
       transcripts.length > 0
         ? await generateSummary(transcripts)
-        : { summary: "No patient conversation took place." };
+        : {
+            summary: "No patient conversation took place.",
+            actions: [],
+            name: "Empty conversation",
+          };
 
     res.json({
       name: result.name,
@@ -82,7 +86,7 @@ app.post("/api/summary", async (req, res) => {
 // Store conversation
 app.post("/api/conversations", async (req, res) => {
   try {
-    const { transcript, summary, actions, createdAt } = req.body;
+    const { transcript, summary, actions, createdAt, name } = req.body;
 
     console.log("Saving conversation", transcript, summary, actions, createdAt);
 
@@ -91,6 +95,7 @@ app.post("/api/conversations", async (req, res) => {
       summary,
       actions,
       createdAt,
+      name,
     });
 
     console.log("Saving conversation", conversation);

@@ -5,6 +5,7 @@ import {
   setListening,
   addDetectedAction,
   setConnecting,
+  setStopping,
 } from "../store/interpreterSlice";
 import { monitorForWakeWord } from "./wakeWordRecognition";
 import { URL } from "./server";
@@ -65,7 +66,7 @@ const doConnect = async () => {
 
     // Send offer to OpenAI Realtime API
     const baseUrl = "https://api.openai.com/v1/realtime";
-    const model = "gpt-4o-realtime-preview";
+    const model = "gpt-4o-realtime-preview-2024-12-17";
     const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
       body: offer.sdp,
@@ -126,6 +127,17 @@ const startListening = () => {
 const disconnect = () => {
   console.log("Disconnecting");
 
+  if (dataChannel) {
+    dataChannel.close();
+    dataChannel = null;
+  }
+
+  peerConnection.getSenders().forEach((sender) => {
+    if (sender.track) {
+      sender.track.stop();
+    }
+  });
+
   // Disconnect WebRTC
   if (peerConnection) {
     peerConnection.close();
@@ -147,6 +159,7 @@ const stopListening = () => {
   console.log("Stopping listening");
 
   dispatch(setListening(false));
+  dispatch(setStopping(true));
 
   // Clear the input audio buffer
   const clearAudioEvent = {
@@ -157,26 +170,64 @@ const stopListening = () => {
   disconnect();
 };
 
-const requestMetadata = (transcript) => {
-  console.log("Requesting metadata", dataChannel?.readyState);
+const requestTranslation = (transcriptId, transcript) => {
+  console.log("Requesting translation", dataChannel?.readyState);
   if (!dataChannel || dataChannel.readyState !== "open" || !transcript) return;
 
-  const prompt = `Return a JSON object identifying the language of the most recent utterance from the conversation, as well as whether they were requesting a specific action from you:
+  const prompt = `You are a healthcare interpreter and assistant that translates between English and Spanish. You must respond to the following utterance:
 
-Most recent utterance: "${transcript}"
+"${transcript}"
 
-The possible actions they might request are:
+Follow these rules in prioity order:
 
-- Repeat the last translation
-- Order a lab
-- Schedule a follow-up appointment
-
-{ "reasoning": "<One sentence explaining your reasoning for the language you identified as well as whether or not you think they are requesting a specific action from you. If it is close to English assume it is English. If it is close to Spanish (e.g. Portuguese) assume it is actually Spanish.>", "languageCode": "<3 letter language code. Must be eng, spa, or other if you think it's some other language>", "action": <"repeat"|"order_lab"|"schedule_followup"|null>, "actionDetails": "<Details of the action they are requesting, if any>" }`;
+1. If they told you to stop or that they are done, just say "Ok".
+2. If they asked you to repeat something, repeat the last thing you said verbatim.
+3. If they addressed directly as Sully (might sound like silly, sorry, sally, only, siri, selling, sewing, or slowly), reply directly in English. Do not translate direct requests to you!
+4. If they spoke in English, translate it to Spanish. If they spoke in Spanish, translate it to English. Parrot back exactly what they said in the other language. Say EXACTLY what is said to you. Do NOT add your own commentary or explanations. Do NOT change names that are said (e.g. if they say "I'm Dr. Smith", say "Yo soy Dr. Smith" back to them). Do NOT change the wording.
+5. If they spoke in a language other than Spanish or English, just say "I'm sorry, I didn't get that" in English.`;
   const metadataEvent = {
     type: "response.create",
     response: {
       conversation: "none",
-      metadata: { topic: "metadata" },
+      metadata: { transcriptId, topic: "translation" },
+      modalities: ["audio", "text"],
+      instructions: prompt,
+    },
+  };
+
+  console.log("Sending translation event");
+
+  dataChannel.send(JSON.stringify(metadataEvent));
+};
+
+const requestMetadata = (transcriptId, transcript) => {
+  console.log("Requesting metadata", dataChannel?.readyState);
+  if (!dataChannel || dataChannel.readyState !== "open" || !transcript) return;
+
+  const prompt = `You are a healthcare interpreter and assistant that translates between English and Spanish. Return a JSON object identifying:
+  
+- **languageCode**: The languageCode of the most recent utterance from the conversation. If it is close to English assume it is English. If it is close to Spanish (e.g. Portuguese) assume it is actually Spanish.
+- **actions**: A list of any actions requested by the utterance.
+
+There are 2 types of action schemas:
+
+- **order_lab**: The doctor wants to order a lab.
+  - **schema**: { "type": "order_lab", "details": { "test_type": "<string>", "urgency": "<string>", "instructions": "<string>" } }
+- **schedule_followup**: The doctor wants to schedule another appointment.
+  - **schema**: { "type": "schedule_followup", "details": { "timeframe": "<string>", "reason": "<string>", "specialty": "<string>" } }
+
+The utterance is:
+
+"${transcript}"
+
+Example JSON output:
+
+{ "reasoning": "<One sentence explaining your reasoning for the language you identified as well as any action(s) you identified. >", "languageCode": "<3 letter language code. Must be eng, spa, or other if you think it's some other language>", "actions": [<The list of actions you identified. Empty list if no actions are requested.>] }`;
+  const metadataEvent = {
+    type: "response.create",
+    response: {
+      conversation: "none",
+      metadata: { transcriptId, topic: "metadata" },
       modalities: ["text"],
       instructions: prompt,
     },
@@ -203,23 +254,18 @@ const requestRepeat = (translation) => {
   dataChannel.send(JSON.stringify(repeatEvent));
 };
 
-const requestAction = (metadata) => {
-  console.log("Requesting action:", metadata);
+const requestAction = async (action) => {
+  dispatch(
+    addDetectedAction({ ...action, createdAt: new Date().toISOString() })
+  );
 
-  const prompt = `Make a tool/function call using ${metadata.action} based on the following recently requested action:
-
-"${metadata.actionDetails}"`;
-  const actionEvent = {
-    type: "response.create",
-    response: {
-      conversation: "none",
-      metadata: { topic: "action" },
-      modalities: ["text"],
-      instructions: prompt,
+  await fetch(`${URL}/api/webhook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-  };
-
-  dataChannel.send(JSON.stringify(actionEvent));
+    body: JSON.stringify(action),
+  });
 };
 
 const handleFunctionCall = async (functionCall) => {
@@ -316,4 +362,5 @@ export {
   requestRepeat,
   stopListening,
   handleFunctionCall,
+  requestTranslation,
 };

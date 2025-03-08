@@ -3,7 +3,7 @@ import { useSelector, useDispatch } from "react-redux";
 import {
   getSummary,
   saveConversation,
-  setDetectedActions,
+  setStopping,
   setSummary,
   setShowConversationModal,
   fetchConversations,
@@ -24,6 +24,7 @@ const Interpreter = () => {
     error,
     detectedActions,
     summary,
+    isStopping,
   } = useSelector((state) => state.interpreter);
   const transcriptRef = useRef(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -36,7 +37,7 @@ const Interpreter = () => {
   useEffect(() => {
     const completedTranscripts = getCompletedTranscripts(transcripts);
 
-    if (!isListening && completedTranscripts.length > 0) {
+    if (isStopping && completedTranscripts.length > 0) {
       console.log("Saving conversation", completedTranscripts);
       setIsLoadingSummary(true);
       // Get summary and save conversation
@@ -44,7 +45,6 @@ const Interpreter = () => {
         .unwrap()
         .then((result) => {
           dispatch(setSummary(result.summary));
-          dispatch(setDetectedActions(result.actions));
 
           console.log("Got summary", result);
 
@@ -52,7 +52,7 @@ const Interpreter = () => {
           return dispatch(
             saveConversation({
               name: result.name,
-              actions: result.actions,
+              actions: detectedActions,
               transcript: completedTranscripts,
               summary: result.summary,
               createdAt: new Date().toISOString(),
@@ -61,6 +61,8 @@ const Interpreter = () => {
         })
         .catch((err) => console.error("Error processing conversation:", err));
     }
+
+    dispatch(setStopping(false));
   }, [isListening, transcripts]);
 
   useEffect(monitorForWakeWord, []);
@@ -68,6 +70,7 @@ const Interpreter = () => {
   // Auto-scroll effect
   useEffect(() => {
     if (
+      !summary &&
       transcriptRef.current &&
       transcripts.every((t) => t.hasMetadata && t.hasTranslation)
     ) {
@@ -81,6 +84,7 @@ const Interpreter = () => {
   const completedTranscripts = getCompletedTranscripts(transcripts);
 
   const handleLoadConversations = () => {
+    dispatch(fetchConversations());
     dispatch(setShowConversationModal(true));
   };
 
@@ -196,12 +200,7 @@ const Interpreter = () => {
               <h2>Action Items</h2>
             </div>
             <div className="actions">
-              {isLoadingSummary ? (
-                <div className="connecting-indicator">
-                  <div className="connecting-spinner"></div>
-                  <p>Loading action items...</p>
-                </div>
-              ) : detectedActions.length > 0 ? (
+              {detectedActions.length > 0 ? (
                 <ul>
                   {detectedActions.map((action, i) => (
                     <li key={i} className="action-item">
@@ -235,6 +234,10 @@ const Interpreter = () => {
                     </li>
                   ))}
                 </ul>
+              ) : summary ? (
+                <p className="empty-text">
+                  No action items were found in this conversation.
+                </p>
               ) : (
                 <p className="empty-text">
                   Action items will appear here after the conversation is

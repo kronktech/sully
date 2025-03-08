@@ -7,6 +7,10 @@
 3. Say "Sully translate" to start.
 4. Say "Sully stop" to stop.
 
+# Follow-up
+
+**Update after deadline**: I realized that the reason I was struggling so much with the performance and coordination of the realtime model was that I was running the VAD with create_response set to true. Switching over to manually sending events to request responses allows much more control over the realtime model's output and now allows the transcript, metadata, and translation to be linked by an ID passed via metadata. With this change, I now have the live action execution & little to know unexpected behaviors of the model.
+
 ## Features
 
 1. **Hands-free**: The browser speech recognition API is used to support the "Sully" wake word so that visits can be started and completed solely through speech. Say **"Sully translate"** to clear the current conversation and start a new one, say **"Sully stop"** to end it.

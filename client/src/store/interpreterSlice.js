@@ -1,13 +1,6 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { URL } from "../services/server";
 
-/**
- * Sometimes there is no translation
- * Sometimes the transcript is nonsense
- *
- */
-const TIME_THRESHOLD = 1000 * 5; // 5 seconds
-
 // Async thunk to get an ephemeral token
 export const getEphemeralToken = createAsyncThunk(
   "interpreter/getEphemeralToken",
@@ -107,6 +100,7 @@ const initialState = {
   summary: null,
   conversations: [],
   showConversationModal: false,
+  isStopping: false,
 };
 
 const interpreterSlice = createSlice({
@@ -114,57 +108,29 @@ const interpreterSlice = createSlice({
   initialState,
   reducers: {
     addTranscript: (state, action) => {
-      if (state.transcriptMetadata.length >= state.transcripts.length + 1) {
-        action.payload = {
-          ...action.payload,
-          ...state.transcriptMetadata[state.transcriptMetadata.length - 1],
-          hasMetadata: true,
-        };
-      }
-
-      if (state.translations.length >= state.transcripts.length + 1) {
-        action.payload = {
-          ...action.payload,
-          ...state.translations[state.translations.length - 1],
-          hasTranslation: true,
-        };
-      }
-
-      console.log("Transcript payload:", action.payload);
-
       state.transcripts.push(action.payload);
     },
     addTranscriptMetadata: (state, action) => {
-      state.transcriptMetadata.push(action.payload);
-
-      if (state.transcripts.length >= state.transcriptMetadata.length) {
-        state.transcripts[state.transcripts.length - 1] = {
-          ...state.transcripts[state.transcripts.length - 1],
-          ...action.payload,
-          hasMetadata: true,
-        };
-      }
-
-      console.log(
-        "Transcript metadata added:",
-        state.transcripts[state.transcripts.length - 1]
+      const transcript = state.transcripts.find(
+        (transcript) => transcript.id === action.payload.id
       );
+
+      Object.keys(action.payload).forEach((key) => {
+        transcript[key] = action.payload[key];
+      });
+
+      transcript.hasMetadata = true;
     },
     addTranslation: (state, action) => {
-      state.translations.push(action.payload);
-
-      if (state.transcripts.length >= state.translations.length) {
-        state.transcripts[state.transcripts.length - 1] = {
-          ...state.transcripts[state.transcripts.length - 1],
-          ...action.payload,
-          hasTranslation: true,
-        };
-      }
-
-      console.log(
-        "Transcript translation added:",
-        state.transcripts[state.transcripts.length - 1]
+      const transcript = state.transcripts.find(
+        (transcript) => transcript.id === action.payload.id
       );
+
+      Object.keys(action.payload).forEach((key) => {
+        transcript[key] = action.payload[key];
+      });
+
+      transcript.hasTranslation = true;
     },
     clearTranscripts: (state) => {
       state.transcripts = [];
@@ -193,7 +159,12 @@ const interpreterSlice = createSlice({
     },
     loadConversation: (state, action) => {
       const { transcript, summary, actions } = action.payload;
-      state.transcripts = transcript;
+      console.log("Loading conversation:", action.payload);
+      state.transcripts = transcript.map((transcript) => ({
+        ...transcript,
+        hasMetadata: true,
+        hasTranslation: true,
+      }));
       state.transcriptMetadata = transcript.map((t) => ({
         role: t.role,
         languageCode: t.languageCode,
@@ -202,6 +173,9 @@ const interpreterSlice = createSlice({
       state.translations = transcript.map((t) => t.translation);
       state.summary = summary;
       state.detectedActions = actions;
+    },
+    setStopping: (state, action) => {
+      state.isStopping = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -251,6 +225,7 @@ export const {
   setDetectedActions,
   setShowConversationModal,
   loadConversation,
+  setStopping,
 } = interpreterSlice.actions;
 
 export default interpreterSlice.reducer;

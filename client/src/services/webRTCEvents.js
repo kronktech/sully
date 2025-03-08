@@ -1,13 +1,20 @@
+import { v4 as uuidv4 } from "uuid";
 import { dispatch } from "../store";
 import { WAKE_WORD_REGEX } from "./wakeWordRecognition";
-import { requestMetadata, stopListening, handleFunctionCall } from "./webrtc";
+import {
+  requestAction,
+  requestMetadata,
+  stopListening,
+  handleFunctionCall,
+  requestTranslation,
+} from "./webrtc";
 import {
   addTranscript,
   addTranscriptMetadata,
   addTranslation,
 } from "../store/interpreterSlice";
 
-let latestTranslation = null;
+let lastTranslation = null;
 
 const handleEvent = async (e) => {
   try {
@@ -32,92 +39,97 @@ const handleEvent = async (e) => {
         return;
       }
 
-      requestMetadata(transcript);
+      const transcriptId = uuidv4();
 
       console.log("AddTranscript:", transcript);
 
       // Add to transcript only if it's not a stop command
       dispatch(
         addTranscript({
+          id: transcriptId,
           text: transcript,
           createdAt: new Date().getTime(),
         })
       );
+      requestTranslation(transcriptId, transcript);
+      requestMetadata(transcriptId, transcript);
     } else if (event.type === "response.done") {
       console.log("Output:", event);
 
+      const metadata = event.response.metadata;
+      const topic = metadata?.topic;
+
       if (
-        event.response.metadata?.topic === "metadata" &&
-        event.response.output[0].type === "message"
+        topic === "metadata" &&
+        event.response.output[0]?.type === "message"
       ) {
-        let metadata = {
+        let transcriptionMetadata = {
           isAction: false,
           languageCode: null,
         };
 
         try {
-          metadata = JSON.parse(event.response.output[0].content[0].text);
+          transcriptionMetadata = JSON.parse(
+            event.response.output[0].content[0].text
+          );
         } catch (error) {
           console.error("Error parsing metadata response:", error);
           return;
         }
 
-        // const isAction = Boolean(metadata.action) && metadata.action !== "null";
+        if (transcriptionMetadata.actions.length > 0) {
+          transcriptionMetadata.actions.forEach((action) => {
+            requestAction(action);
+          });
+        }
 
-        // if (isAction) {
-        //   requestAction(metadata);
-        // }
-
-        console.log("AddTranscriptMetadata:", metadata, {
+        console.log("AddTranscriptMetadata:", transcriptionMetadata, {
           role:
-            metadata.languageCode === "eng"
+            transcriptionMetadata.languageCode === "eng"
               ? "doctor"
-              : metadata.languageCode === "spa"
+              : transcriptionMetadata.languageCode === "spa"
               ? "patient"
               : "other",
-          languageCode: metadata.languageCode,
-          action: metadata.action,
-          actionDetails: metadata.actionDetails,
-          timestamp: new Date().getTime(),
+          languageCode: transcriptionMetadata.languageCode,
         });
         dispatch(
           addTranscriptMetadata({
+            id: metadata.transcriptId,
             role:
-              metadata.languageCode === "eng"
+              transcriptionMetadata.languageCode === "eng"
                 ? "doctor"
-                : metadata.languageCode === "spa"
+                : transcriptionMetadata.languageCode === "spa"
                 ? "patient"
                 : "other",
-            languageCode: metadata.languageCode,
-            action: metadata.action,
-            actionDetails: metadata.actionDetails,
-            timestamp: new Date().getTime(),
+            languageCode: transcriptionMetadata.languageCode,
           })
         );
-      } else if (event.response.output?.[0]) {
-        // Check if this is a function call
-        if (event.response.output[0].type === "function_call") {
-          const functionCall = event.response.output[0];
-          console.log("Function call detected:", {
-            name: functionCall.name,
-            arguments: JSON.parse(functionCall.arguments),
-            callId: functionCall.call_id,
-          });
+      } else if (
+        topic === "translation" &&
+        event.response.output[0]?.type === "message"
+      ) {
+        const translation = event.response.output[0].content[0].transcript;
+        console.log("AddTranslation:", metadata, translation);
+        lastTranslation = translation;
+        dispatch(
+          addTranslation({
+            id: metadata.transcriptId,
+            translation,
+          })
+        );
+      } else if (
+        event.response.output?.[0] &&
+        event.response.output[0].type === "function_call"
+      ) {
+        const functionCall = event.response.output[0];
+        console.log("Function call detected:", {
+          name: functionCall.name,
+          arguments: JSON.parse(functionCall.arguments),
+          callId: functionCall.call_id,
+        });
 
-          // Handle function call via webRTC module
-          handleFunctionCall(functionCall);
-        } else {
-          // Handle normal translation response
-          const translation = event.response.output[0].content[0].transcript;
-          console.log("AddTranslation:", translation);
-          dispatch(
-            addTranslation({
-              translation,
-              timestamp: new Date().getTime(),
-            })
-          );
-          latestTranslation = translation;
-        }
+        // Handle function call via webRTC module
+        handleFunctionCall(functionCall);
       }
     }
   } catch (error) {
